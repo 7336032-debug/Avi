@@ -1,0 +1,19 @@
+{
+  "name": "Keren Amar - ניהול תורים",
+  "short_name": "Keren Amar",
+  "description": "מערכת ניהול תורים ותזרים ל-Keren Amar Professional Cosmetics",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f2e9dd",
+  "theme_color": "#f2e9dd",
+  "lang": "he",
+  "dir": "rtl",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
