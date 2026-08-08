@@ -2,9 +2,9 @@
 // localStorage, nothing is sent to any server. No login, no account —
 // there is exactly one implicit user per device (see LOCAL_USER_ID).
 // Cross-device sync layers on top of this via readStore()/writeStore() —
-// see cloudSync.ts + syncConfig.ts for the pairing-code sync mechanism
-// (encrypted, zero-account, modeled on the "recovery plan" app's), and
-// export/import above remains available as a manual, no-network fallback.
+// see googleSync.ts + googleSyncConfig.ts for the Google Drive sync
+// mechanism (modeled on the "recovery plan" app's), and export/import
+// below remains available as a manual, no-network fallback.
 
 import { LOCAL_USER_ID, type Row, type Store } from "./store";
 

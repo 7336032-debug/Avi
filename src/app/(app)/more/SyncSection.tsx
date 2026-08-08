@@ -1,182 +1,78 @@
 "use client";
 
-// Cross-device sync via a pairing code — zero-account, modeled on
-// tochnit-hachlama's SyncSection.jsx/DataContext.jsx (see cloudSync.ts and
-// syncConfig.ts for the underlying mechanism). The whole local `Store` is
-// encrypted with a PIN and pushed to kvdb.io; only ciphertext ever leaves
-// the device. Manual "push now" / "pull now" only (no auto-push) — kept
-// simple and predictable, matching the reference app's on-demand model.
+// Automatic cross-device sync via the user's own Google account (Drive's
+// hidden per-app "appdata" folder) — modeled on tochnit-hachlama's
+// GoogleSyncPanel.jsx/DataContext.jsx. Replaces an earlier kvdb.io-based
+// pairing-code approach that tested unreliable in practice. See
+// googleSync.ts, googleSyncConfig.ts and useGoogleSync.ts for the
+// underlying mechanism.
+//
+// Three states:
+//  - not configured (no NEXT_PUBLIC_GOOGLE_CLIENT_ID set yet) - a small
+//    notice; the rest of the app (including manual export/import below)
+//    stays fully usable.
+//  - signed out - a "sign in with Google" button + a note that the SAME
+//    Google account must be used on every device.
+//  - signed in - status/last-synced time, "push now"/"pull now" buttons,
+//    and a disconnect option with a confirm step.
 
 import { useState } from "react";
-import { Cloud, CloudOff, Copy, Check, Link2, Plus } from "lucide-react";
+import { Cloud, CloudOff } from "lucide-react";
 import { Card, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { Input, Label } from "@/components/ui/Field";
 import { ErrorBanner } from "@/components/ui/ErrorBanner";
-import { readStore, writeStore } from "@/lib/local/browserStore";
-import {
-  encryptPayload,
-  decryptPayload,
-  generatePin,
-  createCloudBlob,
-  pushCloudBlob,
-  pullCloudBlob,
-  type EncryptedBlob,
-} from "@/lib/local/cloudSync";
-import {
-  loadSyncConfig,
-  saveSyncConfig,
-  clearSyncConfig,
-  type SyncConfig,
-} from "@/lib/local/syncConfig";
-import type { Store } from "@/lib/local/store";
-
-interface SyncStatus {
-  syncing: boolean;
-  lastSyncAt: string | null;
-  error: string | null;
-}
-
-const initialStatus: SyncStatus = { syncing: false, lastSyncAt: null, error: null };
+import { isGoogleConfigured } from "@/lib/local/googleSync";
+import { useGoogleSync, type GoogleSyncStatus } from "@/lib/local/useGoogleSync";
 
 function formatTime(iso: string | null) {
   if (!iso) return null;
   return new Date(iso).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
 }
 
-function reloadSoon() {
-  setTimeout(() => window.location.reload(), 800);
-}
-
-function CopyRow({ label, value }: { label: string; value: string }) {
-  const [copied, setCopied] = useState(false);
-  function copy() {
-    navigator.clipboard?.writeText(value).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  }
+function NotConfiguredPanel() {
   return (
-    <div className="flex items-center justify-between gap-2.5 rounded-xl bg-surface-soft px-3.5 py-2.5">
-      <div>
-        <div className="text-xs text-text-muted">{label}</div>
-        <div className="text-lg font-extrabold tracking-wide">{value}</div>
-      </div>
-      <Button type="button" variant="secondary" size="sm" onClick={copy}>
-        {copied ? <Check size={16} /> : <Copy size={16} />}
-        {copied ? "הועתק" : "העתקה"}
-      </Button>
-    </div>
+    <p className="rounded-xl bg-surface-soft px-3.5 py-2.5 text-sm text-text-muted">
+      🔧 סנכרון אוטומטי עם Google עדיין לא הוגדר במערכת. עד אז אפשר להשתמש
+      בייצוא/יבוא הידני למטה.
+    </p>
   );
 }
 
-function JustCreatedPanel({ config, onDone }: { config: SyncConfig; onDone: () => void }) {
+function SignedOutPanel({ status, onSignIn }: { status: GoogleSyncStatus; onSignIn: () => void }) {
   return (
     <div className="space-y-3">
       <p className="text-sm text-text-muted">
-        הסנכרון הופעל! העתיקי את שני הפרטים האלה, ובמכשיר השני: עוד ⚙️ ← סנכרון
-        בין מכשירים ← &quot;יש לי כבר קוד ממכשיר אחר&quot; ← הדביקי כאן.
+        מומלץ: התחברות עם חשבון Google מסנכרנת את הנתונים אוטומטית בין כל
+        המכשירים - בלי לחזור על שום פעולה. יש להתחבר עם{" "}
+        <b className="text-text">אותו חשבון Google</b> בכל מכשיר.
       </p>
-      <CopyRow label="קוד סנכרון" value={config.id} />
-      <CopyRow label="פין" value={config.pin} />
-      <Button type="button" size="sm" className="w-full" onClick={onDone}>
-        סיימתי, חזרה
-      </Button>
-    </div>
-  );
-}
-
-function SetupPanel({
-  status,
-  onStart,
-}: {
-  status: SyncStatus;
-  onStart: () => void;
-}) {
-  return (
-    <div className="space-y-3">
-      <Button
-        type="button"
-        size="sm"
-        className="w-full"
-        onClick={onStart}
-        disabled={status.syncing}
-      >
+      <Button type="button" size="sm" className="w-full" onClick={onSignIn} disabled={status.syncing}>
         <Cloud size={16} />
-        {status.syncing ? "יוצרת סנכרון..." : "הפעלת סנכרון (המכשיר הראשון)"}
+        {status.syncing ? "מתחברת..." : "התחברות עם Google"}
       </Button>
       {status.error ? <ErrorBanner message={status.error} /> : null}
     </div>
   );
 }
 
-function ConnectPanel({
-  status,
-  onConnect,
-}: {
-  status: SyncStatus;
-  onConnect: (code: string, pin: string) => void;
-}) {
-  const [code, setCode] = useState("");
-  const [pin, setPin] = useState("");
-
-  return (
-    <form
-      className="space-y-3"
-      onSubmit={(e) => {
-        e.preventDefault();
-        onConnect(code.trim(), pin.trim());
-      }}
-    >
-      <div>
-        <Label htmlFor="sync-code">קוד סנכרון</Label>
-        <Input
-          id="sync-code"
-          value={code}
-          onChange={(e) => setCode(e.target.value)}
-          placeholder="הקוד מהמכשיר הראשון"
-        />
-      </div>
-      <div>
-        <Label htmlFor="sync-pin">פין (6 ספרות)</Label>
-        <Input
-          id="sync-pin"
-          value={pin}
-          onChange={(e) => setPin(e.target.value)}
-          inputMode="numeric"
-          placeholder="000000"
-        />
-      </div>
-      <Button type="submit" size="sm" className="w-full" disabled={status.syncing || !code || !pin}>
-        <Link2 size={16} />
-        {status.syncing ? "מתחברת..." : "התחברות"}
-      </Button>
-      {status.error ? <ErrorBanner message={status.error} /> : null}
-    </form>
-  );
-}
-
-function ConnectedPanel({
-  config,
+function SignedInPanel({
   status,
   onPush,
   onPull,
-  onDisconnect,
+  onSignOut,
 }: {
-  config: SyncConfig;
-  status: SyncStatus;
+  status: GoogleSyncStatus;
   onPush: () => void;
   onPull: () => void;
-  onDisconnect: () => void;
+  onSignOut: () => void;
 }) {
-  const [showCode, setShowCode] = useState(false);
-  const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
+  const [confirmingSignOut, setConfirmingSignOut] = useState(false);
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="inline-flex items-center gap-1.5 rounded-full bg-success-bg px-3 py-1 text-sm font-semibold text-success">
-          <Cloud size={14} aria-hidden /> הסנכרון פעיל
+          <Cloud size={14} aria-hidden /> מחוברת ל-Google
         </span>
         <span className="text-xs text-text-muted">
           {status.syncing
@@ -198,36 +94,25 @@ function ConnectedPanel({
         </Button>
       </div>
 
-      <Button type="button" variant="ghost" size="sm" className="w-full" onClick={() => setShowCode((v) => !v)}>
-        <Plus size={16} />
-        {showCode ? "הסתרת הקוד" : "צימוד מכשיר נוסף"}
-      </Button>
-      {showCode ? (
-        <div className="space-y-2">
-          <CopyRow label="קוד סנכרון" value={config.id} />
-          <CopyRow label="פין" value={config.pin} />
-        </div>
-      ) : null}
-
-      {!confirmingDisconnect ? (
+      {!confirmingSignOut ? (
         <Button
           type="button"
           variant="ghost"
           size="sm"
           className="w-full"
-          onClick={() => setConfirmingDisconnect(true)}
+          onClick={() => setConfirmingSignOut(true)}
         >
           <CloudOff size={16} />
-          ניתוק סנכרון במכשיר הזה
+          התנתקות מ-Google במכשיר הזה
         </Button>
       ) : (
         <div className="space-y-2 rounded-xl bg-warning-bg p-3">
-          <p className="text-sm text-warning">לנתק רק את המכשיר הזה? הנתונים בענן לא יימחקו.</p>
+          <p className="text-sm text-warning">להתנתק? הנתונים ב-Google Drive לא יימחקו.</p>
           <div className="grid grid-cols-2 gap-2">
-            <Button type="button" variant="danger" size="sm" onClick={onDisconnect}>
-              כן, נתקי
+            <Button type="button" variant="danger" size="sm" onClick={onSignOut}>
+              כן, התנתקי
             </Button>
-            <Button type="button" variant="secondary" size="sm" onClick={() => setConfirmingDisconnect(false)}>
+            <Button type="button" variant="secondary" size="sm" onClick={() => setConfirmingSignOut(false)}>
               ביטול
             </Button>
           </div>
@@ -238,119 +123,18 @@ function ConnectedPanel({
 }
 
 export function SyncSection() {
-  const [syncConfig, setSyncConfig] = useState<SyncConfig | null>(() => loadSyncConfig());
-  const [status, setStatus] = useState<SyncStatus>(initialStatus);
-  const [mode, setMode] = useState<"choice" | "setup" | "connect">("choice");
-  const [justCreated, setJustCreated] = useState<SyncConfig | null>(null);
-
-  async function handleStart() {
-    setStatus((s) => ({ ...s, syncing: true, error: null }));
-    try {
-      const pin = generatePin();
-      const store = readStore();
-      const payload = await encryptPayload(store, pin);
-      const id = await createCloudBlob(payload);
-      const config: SyncConfig = { id, pin };
-      saveSyncConfig(config);
-      setSyncConfig(config);
-      setStatus({ syncing: false, lastSyncAt: new Date().toISOString(), error: null });
-      setJustCreated(config);
-    } catch (err) {
-      setStatus((s) => ({ ...s, syncing: false, error: (err as Error).message }));
-    }
-  }
-
-  async function handleConnect(id: string, pin: string) {
-    setStatus((s) => ({ ...s, syncing: true, error: null }));
-    try {
-      const blob = await pullCloudBlob(id);
-      const cloudStore = await decryptPayload<Store>(blob, pin);
-      const config: SyncConfig = { id, pin };
-      saveSyncConfig(config);
-      setSyncConfig(config);
-      writeStore(cloudStore);
-      setStatus({ syncing: false, lastSyncAt: new Date().toISOString(), error: null });
-      reloadSoon();
-    } catch (err) {
-      setStatus((s) => ({ ...s, syncing: false, error: (err as Error).message }));
-    }
-  }
-
-  async function handlePush() {
-    if (!syncConfig) return;
-    setStatus((s) => ({ ...s, syncing: true, error: null }));
-    try {
-      const store = readStore();
-      const payload: EncryptedBlob = await encryptPayload(store, syncConfig.pin);
-      await pushCloudBlob(syncConfig.id, payload);
-      setStatus({ syncing: false, lastSyncAt: new Date().toISOString(), error: null });
-    } catch (err) {
-      setStatus((s) => ({ ...s, syncing: false, error: (err as Error).message }));
-    }
-  }
-
-  async function handlePull() {
-    if (!syncConfig) return;
-    setStatus((s) => ({ ...s, syncing: true, error: null }));
-    try {
-      const blob = await pullCloudBlob(syncConfig.id);
-      const cloudStore = await decryptPayload<Store>(blob, syncConfig.pin);
-      writeStore(cloudStore);
-      setStatus({ syncing: false, lastSyncAt: new Date().toISOString(), error: null });
-      reloadSoon();
-    } catch (err) {
-      setStatus((s) => ({ ...s, syncing: false, error: (err as Error).message }));
-    }
-  }
-
-  function handleDisconnect() {
-    clearSyncConfig();
-    setSyncConfig(null);
-    setStatus(initialStatus);
-    setMode("choice");
-  }
+  const { config, status, signIn, signOut, pushNow, pullManual } = useGoogleSync();
 
   return (
     <Card>
       <CardTitle>☁️ סנכרון בין מכשירים</CardTitle>
 
-      {justCreated ? (
-        <JustCreatedPanel config={justCreated} onDone={() => setJustCreated(null)} />
-      ) : syncConfig ? (
-        <ConnectedPanel
-          config={syncConfig}
-          status={status}
-          onPush={handlePush}
-          onPull={handlePull}
-          onDisconnect={handleDisconnect}
-        />
+      {!isGoogleConfigured() ? (
+        <NotConfiguredPanel />
+      ) : !config || !status.signedIn ? (
+        <SignedOutPanel status={status} onSignIn={signIn} />
       ) : (
-        <div className="space-y-3">
-          <p className="text-sm text-text-muted">
-            סנכרון שומר את הנתונים שלך מוצפנים בענן כדי שיהיו זמינים גם בטלפון
-            וגם במחשב - בלי צורך בהרשמה או חשבון.
-          </p>
-          {mode === "choice" ? (
-            <div className="space-y-2">
-              <Button type="button" size="sm" className="w-full" onClick={() => setMode("setup")}>
-                <Cloud size={16} />
-                הפעלת סנכרון (מכשיר ראשון)
-              </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                className="w-full"
-                onClick={() => setMode("connect")}
-              >
-                <Link2 size={16} />
-                יש לי כבר קוד ממכשיר אחר
-              </Button>
-            </div>
-          ) : null}
-          {mode === "setup" ? <SetupPanel status={status} onStart={handleStart} /> : null}
-          {mode === "connect" ? <ConnectPanel status={status} onConnect={handleConnect} /> : null}
-        </div>
+        <SignedInPanel status={status} onPush={pushNow} onPull={() => pullManual()} onSignOut={signOut} />
       )}
     </Card>
   );
