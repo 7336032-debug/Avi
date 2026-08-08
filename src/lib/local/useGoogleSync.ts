@@ -21,7 +21,7 @@
 //    edit/delete flows use) so every dependent total/list/calendar cell
 //    picks up the new data.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { readStore, writeStore } from "@/lib/local/browserStore";
 import type { Store } from "@/lib/local/store";
 import {
@@ -40,8 +40,6 @@ import {
   clearGoogleSyncConfig,
   type GoogleSyncConfig,
 } from "@/lib/local/googleSyncConfig";
-
-const AUTO_PULL_INTERVAL_MS = 20000;
 
 export interface GoogleSyncStatus {
   signedIn: boolean;
@@ -67,13 +65,6 @@ export function useGoogleSync() {
     lastSyncAt: null,
     error: null,
   }));
-
-  // Mirrors `status` for use inside effects/callbacks without pulling
-  // `status` into their dependency arrays.
-  const statusRef = useRef(status);
-  useEffect(() => {
-    statusRef.current = status;
-  }, [status]);
 
   // Load the Google sign-in script as soon as this screen mounts, well
   // before any click — see preloadGoogleSyncScript()'s comment for why this
@@ -159,36 +150,17 @@ export function useGoogleSync() {
     setStatus({ signedIn: false, syncing: false, lastSyncAt: null, error: null });
   }, []);
 
-  // silent resume on page load if this device previously signed in
-  const resumedOnMount = useRef(false);
-  useEffect(() => {
-    if (config && !resumedOnMount.current) {
-      resumedOnMount.current = true;
-      pullNow(config.fileId, { silent: true, reloadOnChange: true });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // periodic + on-return auto-pull, so changes made on another device show
-  // up here without a manual reload - skipped while a sync is already in
-  // flight so it never races a push/pull already under way
-  useEffect(() => {
-    if (!config) return undefined;
-    const tryPull = () => {
-      if (document.visibilityState !== "visible") return;
-      if (statusRef.current.syncing) return;
-      pullNow(config.fileId, { silent: true, reloadOnChange: true });
-    };
-    document.addEventListener("visibilitychange", tryPull);
-    window.addEventListener("focus", tryPull);
-    const interval = setInterval(tryPull, AUTO_PULL_INTERVAL_MS);
-    return () => {
-      document.removeEventListener("visibilitychange", tryPull);
-      window.removeEventListener("focus", tryPull);
-      clearInterval(interval);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config]);
+  // Sync is intentionally manual-only (push now / pull now), not automatic.
+  // An earlier version silently auto-pulled on a timer/focus and blindly
+  // overwrote local data whenever it differed from the Drive file - which
+  // is exactly wrong the moment local is the side with the newer,
+  // not-yet-pushed change (e.g. she just logged a treatment on this
+  // device): it clobbered the fresh entry with the stale remote snapshot
+  // a few seconds later. Without a real "which side is newer" signal
+  // (e.g. a last-modified timestamp compared before overwriting), silent
+  // auto-pull can't safely tell "remote has new changes from another
+  // device" apart from "local has new changes I haven't pushed yet" - so
+  // this only ever pulls when she explicitly asks it to.
 
   return { config, status, signIn, signOut, pushNow, pullManual };
 }

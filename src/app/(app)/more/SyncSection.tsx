@@ -32,7 +32,7 @@ function formatTime(iso: string | null) {
 function NotConfiguredPanel() {
   return (
     <p className="rounded-xl bg-surface-soft px-3.5 py-2.5 text-sm text-text-muted">
-      🔧 סנכרון אוטומטי עם Google עדיין לא הוגדר במערכת. עד אז אפשר להשתמש
+      🔧 סנכרון עם Google עדיין לא הוגדר במערכת. עד אז אפשר להשתמש
       בייצוא/יבוא הידני למטה.
     </p>
   );
@@ -42,9 +42,10 @@ function SignedOutPanel({ status, onSignIn }: { status: GoogleSyncStatus; onSign
   return (
     <div className="space-y-3">
       <p className="text-sm text-text-muted">
-        מומלץ: התחברות עם חשבון Google מסנכרנת את הנתונים אוטומטית בין כל
-        המכשירים - בלי לחזור על שום פעולה. יש להתחבר עם{" "}
-        <b className="text-text">אותו חשבון Google</b> בכל מכשיר.
+        התחברות עם חשבון Google מאפשרת להעביר את הנתונים בין המכשירים —{" "}
+        <b className="text-text">בלחיצה על &quot;שמירה עכשיו&quot; במכשיר אחד, ואז &quot;טעינה עכשיו&quot; במכשיר השני</b>.
+        זה לא קורה אוטומטית, כדי שלעולם לא ידרסו לך נתונים חדשים בטעות. יש
+        להתחבר עם <b className="text-text">אותו חשבון Google</b> בכל מכשיר.
       </p>
       <Button type="button" size="sm" className="w-full" onClick={onSignIn} disabled={status.syncing}>
         <Cloud size={16} />
