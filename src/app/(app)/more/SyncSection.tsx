@@ -56,12 +56,20 @@ function SignedOutPanel({ status, onSignIn }: { status: GoogleSyncStatus; onSign
   );
 }
 
+const LAST_ACTION_LABEL: Record<NonNullable<GoogleSyncStatus["lastAction"]>, string> = {
+  pushed: "הנתונים של המכשיר הזה הועלו לענן",
+  pulled: "התקבלו נתונים חדשים מהענן",
+  "up-to-date": "כבר מסונכרן, אין שינוי",
+};
+
 function SignedInPanel({
   status,
+  fileId,
   onSyncNow,
   onSignOut,
 }: {
   status: GoogleSyncStatus;
+  fileId: string;
   onSyncNow: () => void;
   onSignOut: () => void;
 }) {
@@ -81,6 +89,10 @@ function SignedInPanel({
               : "טרם בוצע סנכרון"}
         </span>
       </div>
+
+      {!status.syncing && status.lastAction ? (
+        <p className="text-xs text-text-muted">↳ {LAST_ACTION_LABEL[status.lastAction]}</p>
+      ) : null}
 
       <p className="text-xs text-text-muted">
         מסתנכרן אוטומטית ברקע. אפשר גם לסנכרן עכשיו במפורש:
@@ -116,6 +128,10 @@ function SignedInPanel({
           </div>
         </div>
       )}
+
+      <p className="text-center text-[11px] text-text-muted/70">
+        מזהה קובץ סנכרון: {fileId.slice(0, 8)}… (צריך להיות זהה בכל המכשירים)
+      </p>
     </div>
   );
 }
@@ -132,7 +148,7 @@ export function SyncSection() {
       ) : !config || !status.signedIn ? (
         <SignedOutPanel status={status} onSignIn={signIn} />
       ) : (
-        <SignedInPanel status={status} onSyncNow={() => syncNow()} onSignOut={signOut} />
+        <SignedInPanel status={status} fileId={config.fileId} onSyncNow={() => syncNow()} onSignOut={signOut} />
       )}
     </Card>
   );

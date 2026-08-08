@@ -17,11 +17,14 @@
 //   - remote is newer  -> pull (overwrite local with remote)
 //   - local is newer   -> push (overwrite remote with local)
 //   - equal            -> nothing to do
-// That's what makes it safe to run unattended: the earlier version had no
+// That's what makes it safe to run unattended: an earlier version had no
 // such signal, so on any difference it always pulled, which meant a
 // treatment logged on-device could get silently clobbered by a stale
 // cloud snapshot a few seconds later, the moment the timer next fired.
-// Manual "sync now" is still exposed for an immediate, explicit sync.
+// Manual "sync now" is still exposed for an immediate, explicit sync, and
+// `status.lastAction` + `config.fileId` are surfaced in the UI so it's
+// possible to tell, without guessing, what a sync actually did and
+// whether two devices are even pointed at the same Drive file.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { readStore, applyRemoteStore, getLocalUpdatedAt } from "@/lib/local/browserStore";
@@ -55,6 +58,7 @@ export interface GoogleSyncStatus {
   syncing: boolean;
   lastSyncAt: string | null;
   error: string | null;
+  lastAction: "pushed" | "pulled" | "up-to-date" | null;
 }
 
 function friendlyMessage(err: unknown): string {
@@ -85,6 +89,7 @@ export function useGoogleSync() {
     syncing: false,
     lastSyncAt: null,
     error: null,
+    lastAction: null,
   }));
   const statusRef = useRef(status);
   useEffect(() => {
@@ -114,17 +119,22 @@ export function useGoogleSync() {
       if (!remote) {
         // Nothing in the cloud yet - this device's data is the seed.
         await writeSyncFile(token, fileId, { updatedAt: localUpdatedAt, store: readStore() } satisfies SyncPayload);
-      } else if (remote.updatedAt > localUpdatedAt) {
+        setStatus({ signedIn: true, syncing: false, lastSyncAt: new Date().toISOString(), error: null, lastAction: "pushed" });
+        return true;
+      }
+      if (remote.updatedAt > localUpdatedAt) {
         applyRemoteStore(remote.store, remote.updatedAt);
-        setStatus({ signedIn: true, syncing: false, lastSyncAt: new Date().toISOString(), error: null });
+        setStatus({ signedIn: true, syncing: false, lastSyncAt: new Date().toISOString(), error: null, lastAction: "pulled" });
         if (reloadOnChange) reloadSoon();
         return true;
-      } else if (localUpdatedAt > remote.updatedAt) {
-        await writeSyncFile(token, fileId, { updatedAt: localUpdatedAt, store: readStore() } satisfies SyncPayload);
       }
-      // else: timestamps equal, already in sync - nothing to do.
-
-      setStatus({ signedIn: true, syncing: false, lastSyncAt: new Date().toISOString(), error: null });
+      if (localUpdatedAt > remote.updatedAt) {
+        await writeSyncFile(token, fileId, { updatedAt: localUpdatedAt, store: readStore() } satisfies SyncPayload);
+        setStatus({ signedIn: true, syncing: false, lastSyncAt: new Date().toISOString(), error: null, lastAction: "pushed" });
+        return true;
+      }
+      // timestamps equal - already in sync, nothing to do.
+      setStatus({ signedIn: true, syncing: false, lastSyncAt: new Date().toISOString(), error: null, lastAction: "up-to-date" });
       return true;
     } catch (err) {
       // Background ticks fail quietly (no error banner) - a stale/missing
@@ -157,7 +167,7 @@ export function useGoogleSync() {
       const localUpdatedAt = getLocalUpdatedAt();
       if (remote && remote.updatedAt > localUpdatedAt) {
         applyRemoteStore(remote.store, remote.updatedAt);
-        setStatus({ signedIn: true, syncing: false, lastSyncAt: new Date().toISOString(), error: null });
+        setStatus({ signedIn: true, syncing: false, lastSyncAt: new Date().toISOString(), error: null, lastAction: "pulled" });
         reloadSoon();
       } else {
         // Remote is empty, or this device's data is already newer/equal -
@@ -166,7 +176,7 @@ export function useGoogleSync() {
           updatedAt: getLocalUpdatedAt(),
           store: readStore(),
         } satisfies SyncPayload);
-        setStatus({ signedIn: true, syncing: false, lastSyncAt: new Date().toISOString(), error: null });
+        setStatus({ signedIn: true, syncing: false, lastSyncAt: new Date().toISOString(), error: null, lastAction: "pushed" });
       }
       return true;
     } catch (err) {
@@ -179,7 +189,7 @@ export function useGoogleSync() {
     clearCachedToken();
     clearGoogleSyncConfig();
     setConfig(null);
-    setStatus({ signedIn: false, syncing: false, lastSyncAt: null, error: null });
+    setStatus({ signedIn: false, syncing: false, lastSyncAt: null, error: null, lastAction: null });
   }, []);
 
   // Automatic background sync: once on mount (if already signed in), on
