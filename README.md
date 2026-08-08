@@ -73,3 +73,5 @@ Supabase-JS (`.from(table).select()/insert()/update()/delete()`) כדי
   `src/lib/local/`
 - recharts לגרפים, lucide-react לאייקונים, date-fns לתאריכים
 - עברית מלאה, RTL, Mobile-First
+
+<!-- deploy trigger: 2026-08-08 -->
