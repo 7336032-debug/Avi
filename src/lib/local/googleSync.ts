@@ -18,14 +18,18 @@
 //      "Web application". Add these as "Authorized JavaScript origins":
 //        - https://keren-amar-app.vercel.app
 //        - http://localhost:3000  (for local dev)
-//   4. Copy the generated Client ID (ends with .apps.googleusercontent.com)
-//      into the NEXT_PUBLIC_GOOGLE_CLIENT_ID environment variable — in
-//      Vercel: Project → Settings → Environment Variables.
-// Unlike the reference app (which hardcoded its own already-obtained Client
-// ID as a literal constant), this app reads it from an env var since this
-// app's owner hasn't created one yet for her own domain.
+//   4. Copy the generated Client ID (ends with .apps.googleusercontent.com).
+//
+// Client IDs are not secrets (unlike client *secrets*, which this flow never
+// uses) — they're meant to be public, since every browser-side OAuth request
+// already carries the client_id in plain sight. So, like the reference app,
+// this is a literal constant rather than something hidden in an env var.
+// This one is shared with the "recovery plan" sister app: the same Google
+// Cloud OAuth client has both apps' domains listed as authorized origins.
+const HARDCODED_CLIENT_ID =
+  "43040986513-2nsjh844575p1pdf355qmds1jdk0t72a.apps.googleusercontent.com";
 
-const RAW_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+const RAW_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || HARDCODED_CLIENT_ID;
 
 export const GOOGLE_CLIENT_ID = RAW_CLIENT_ID ?? "";
 export const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.appdata";
