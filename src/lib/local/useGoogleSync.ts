@@ -27,7 +27,7 @@
 // whether two devices are even pointed at the same Drive file.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { readStore, applyRemoteStore, getLocalUpdatedAt } from "@/lib/local/browserStore";
+import { readStore, applyRemoteStore, getLocalUpdatedAt, STORE_CHANGED_EVENT } from "@/lib/local/browserStore";
 import type { Store } from "@/lib/local/store";
 import {
   requestAccessToken,
@@ -47,6 +47,7 @@ import {
 } from "@/lib/local/googleSyncConfig";
 
 const AUTO_SYNC_INTERVAL_MS = 20000;
+const AUTO_PUSH_DEBOUNCE_MS = 2500;
 
 interface SyncPayload {
   updatedAt: string;
@@ -214,6 +215,31 @@ export function useGoogleSync() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config]);
+
+  // Debounced auto-push shortly after a local edit (logging a treatment,
+  // editing/deleting a transaction, etc. - anything going through
+  // writeStore()), rather than waiting for the next ~20s tick. This is the
+  // same pattern tochnit-hachlama uses, and it matters more than it looks:
+  // it fires close enough to her last tap that a popup here (if the
+  // silent-refresh path fails) reads as a natural continuation of what she
+  // just did, not a random background interruption - so, unlike the
+  // periodic tick, this one is allowed to fall back to a popup.
+  useEffect(() => {
+    if (!config) return undefined;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const onChange = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (statusRef.current.syncing) return;
+        syncOnce(config.fileId, { silent: false, reloadOnChange: false });
+      }, AUTO_PUSH_DEBOUNCE_MS);
+    };
+    window.addEventListener(STORE_CHANGED_EVENT, onChange);
+    return () => {
+      window.removeEventListener(STORE_CHANGED_EVENT, onChange);
+      if (timer) clearTimeout(timer);
+    };
+  }, [config, syncOnce]);
 
   return { config, status, signIn, signOut, syncNow };
 }

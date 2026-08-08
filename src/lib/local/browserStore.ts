@@ -115,6 +115,13 @@ export function readStore(): Store {
   }
 }
 
+// Fired after a genuine local write (not after applyRemoteStore(), which is
+// data arriving FROM a pull - pushing that right back would be pointless).
+// useGoogleSync.ts listens for this to debounce-push shortly after an edit,
+// instead of waiting for the next periodic sync tick - see its comment for
+// why this specific event-driven trigger matters on Safari.
+export const STORE_CHANGED_EVENT = "ka:store-changed";
+
 export function writeStore(store: Store): void {
   if (!isBrowser()) {
     memoryFallback = store;
@@ -123,6 +130,7 @@ export function writeStore(store: Store): void {
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
     setLocalUpdatedAt(new Date().toISOString());
+    window.dispatchEvent(new Event(STORE_CHANGED_EVENT));
   } catch {
     // storage full/unavailable — mutation stays in memory for this session only
   }
