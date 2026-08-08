@@ -31,6 +31,8 @@ import {
   findOrCreateSyncFileId,
   readSyncFile,
   writeSyncFile,
+  preloadGoogleSyncScript,
+  isGoogleConfigured,
 } from "@/lib/local/googleSync";
 import {
   loadGoogleSyncConfig,
@@ -72,6 +74,13 @@ export function useGoogleSync() {
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
+
+  // Load the Google sign-in script as soon as this screen mounts, well
+  // before any click — see preloadGoogleSyncScript()'s comment for why this
+  // matters for the popup not getting blocked on iOS/Safari.
+  useEffect(() => {
+    if (isGoogleConfigured()) preloadGoogleSyncScript();
+  }, []);
 
   const pullNow = useCallback(
     async (fileId: string, opts: { silent?: boolean; reloadOnChange?: boolean } = {}) => {

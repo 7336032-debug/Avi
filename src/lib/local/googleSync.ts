@@ -77,6 +77,19 @@ declare global {
 let tokenClient: GisTokenClient | null = null;
 let cachedToken: { access_token: string; expiresAt: number } | null = null;
 
+// Exported so callers can kick this off early (e.g. on page mount) rather
+// than only when the user taps "sign in" — iOS/Safari's popup blocker
+// treats a `window.open()` as user-initiated only if it happens within the
+// same synchronous tick as the click. Waiting on the GIS script's network
+// load *inside* the click handler crosses that boundary and gets the
+// sign-in popup silently blocked; preloading removes that wait.
+export function preloadGoogleSyncScript(): void {
+  ensureScriptLoaded().catch(() => {
+    // ignore here - requestAccessToken() will surface the same failure
+    // with a proper Hebrew error message when the user actually tries.
+  });
+}
+
 function ensureScriptLoaded(): Promise<void> {
   return new Promise((resolve, reject) => {
     if (window.google?.accounts?.oauth2) {
