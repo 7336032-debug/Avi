@@ -59,6 +59,41 @@ function isBrowser() {
   return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
 }
 
+// Tracks when this device's data last actually changed, kept separate from
+// `Store` itself (rather than a field inside it) so `Store` stays exactly
+// "the data tables" — queryBuilder.ts derives its table-name type from
+// `keyof Store`, and a metadata field there would incorrectly look like a
+// table. Cross-device sync (see googleSync.ts/useGoogleSync.ts) uses this
+// to tell "remote has newer changes" apart from "local has newer changes
+// not yet pushed" - the earlier version of sync had no such signal and, on
+// any difference, always overwrote local with the remote snapshot, which
+// silently destroyed not-yet-pushed local edits.
+const META_KEY = "keren_amar_store_meta_v1";
+const EPOCH = new Date(0).toISOString();
+
+export function getLocalUpdatedAt(): string {
+  if (!isBrowser()) return EPOCH;
+  try {
+    const raw = window.localStorage.getItem(META_KEY);
+    if (!raw) return EPOCH;
+    const parsed = JSON.parse(raw) as { updatedAt?: string };
+    return parsed.updatedAt ?? EPOCH;
+  } catch {
+    return EPOCH;
+  }
+}
+
+function setLocalUpdatedAt(iso: string): void {
+  if (!isBrowser()) return;
+  try {
+    window.localStorage.setItem(META_KEY, JSON.stringify({ updatedAt: iso }));
+  } catch {
+    // storage full/unavailable — sync will just treat this device as
+    // "always stale" until storage works again, which just means it keeps
+    // pulling rather than ever thinking it has unpushed changes; safe.
+  }
+}
+
 let memoryFallback: Store | null = null;
 
 export function readStore(): Store {
@@ -87,6 +122,25 @@ export function writeStore(store: Store): void {
   }
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+    setLocalUpdatedAt(new Date().toISOString());
+  } catch {
+    // storage full/unavailable — mutation stays in memory for this session only
+  }
+}
+
+// Used only by the cross-device sync pull path to apply a snapshot that
+// came FROM another device, as opposed to a genuine local edit - so this
+// stamps the *remote's own* timestamp as this device's "last known state"
+// time instead of "now", which would otherwise make this device look like
+// it has newer unpushed changes than it actually does right after a pull.
+export function applyRemoteStore(store: Store, remoteUpdatedAt: string): void {
+  if (!isBrowser()) {
+    memoryFallback = store;
+    return;
+  }
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+    setLocalUpdatedAt(remoteUpdatedAt);
   } catch {
     // storage full/unavailable — mutation stays in memory for this session only
   }

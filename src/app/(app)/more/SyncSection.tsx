@@ -5,7 +5,8 @@
 // GoogleSyncPanel.jsx/DataContext.jsx. Replaces an earlier kvdb.io-based
 // pairing-code approach that tested unreliable in practice. See
 // googleSync.ts, googleSyncConfig.ts and useGoogleSync.ts for the
-// underlying mechanism.
+// underlying mechanism (in particular: sync direction is timestamp-based,
+// not "always pull on any difference", so it's safe to run automatically).
 //
 // Three states:
 //  - not configured (no NEXT_PUBLIC_GOOGLE_CLIENT_ID set yet) - a small
@@ -13,8 +14,8 @@
 //    stays fully usable.
 //  - signed out - a "sign in with Google" button + a note that the SAME
 //    Google account must be used on every device.
-//  - signed in - status/last-synced time, "push now"/"pull now" buttons,
-//    and a disconnect option with a confirm step.
+//  - signed in - status/last-synced time, a "sync now" button for an
+//    immediate sync, and a disconnect option with a confirm step.
 
 import { useState } from "react";
 import { Cloud, CloudOff } from "lucide-react";
@@ -42,10 +43,9 @@ function SignedOutPanel({ status, onSignIn }: { status: GoogleSyncStatus; onSign
   return (
     <div className="space-y-3">
       <p className="text-sm text-text-muted">
-        התחברות עם חשבון Google מאפשרת להעביר את הנתונים בין המכשירים —{" "}
-        <b className="text-text">בלחיצה על &quot;שמירה עכשיו&quot; במכשיר אחד, ואז &quot;טעינה עכשיו&quot; במכשיר השני</b>.
-        זה לא קורה אוטומטית, כדי שלעולם לא ידרסו לך נתונים חדשים בטעות. יש
-        להתחבר עם <b className="text-text">אותו חשבון Google</b> בכל מכשיר.
+        התחברות עם חשבון Google מסנכרנת את הנתונים <b className="text-text">אוטומטית</b> בין כל
+        המכשירים - בלי לחזור על שום פעולה. יש להתחבר עם{" "}
+        <b className="text-text">אותו חשבון Google</b> בכל מכשיר.
       </p>
       <Button type="button" size="sm" className="w-full" onClick={onSignIn} disabled={status.syncing}>
         <Cloud size={16} />
@@ -58,13 +58,11 @@ function SignedOutPanel({ status, onSignIn }: { status: GoogleSyncStatus; onSign
 
 function SignedInPanel({
   status,
-  onPush,
-  onPull,
+  onSyncNow,
   onSignOut,
 }: {
   status: GoogleSyncStatus;
-  onPush: () => void;
-  onPull: () => void;
+  onSyncNow: () => void;
   onSignOut: () => void;
 }) {
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
@@ -84,16 +82,15 @@ function SignedInPanel({
         </span>
       </div>
 
+      <p className="text-xs text-text-muted">
+        מסתנכרן אוטומטית ברקע. אפשר גם לסנכרן עכשיו במפורש:
+      </p>
+
       {status.error ? <ErrorBanner message={status.error} /> : null}
 
-      <div className="grid grid-cols-2 gap-2">
-        <Button type="button" variant="secondary" size="sm" onClick={onPush} disabled={status.syncing}>
-          שמירה עכשיו
-        </Button>
-        <Button type="button" variant="secondary" size="sm" onClick={onPull} disabled={status.syncing}>
-          טעינה עכשיו
-        </Button>
-      </div>
+      <Button type="button" variant="secondary" size="sm" className="w-full" onClick={onSyncNow} disabled={status.syncing}>
+        סנכרון עכשיו
+      </Button>
 
       {!confirmingSignOut ? (
         <Button
@@ -124,7 +121,7 @@ function SignedInPanel({
 }
 
 export function SyncSection() {
-  const { config, status, signIn, signOut, pushNow, pullManual } = useGoogleSync();
+  const { config, status, signIn, signOut, syncNow } = useGoogleSync();
 
   return (
     <Card>
@@ -135,7 +132,7 @@ export function SyncSection() {
       ) : !config || !status.signedIn ? (
         <SignedOutPanel status={status} onSignIn={signIn} />
       ) : (
-        <SignedInPanel status={status} onPush={pushNow} onPull={() => pullManual()} onSignOut={signOut} />
+        <SignedInPanel status={status} onSyncNow={() => syncNow()} onSignOut={signOut} />
       )}
     </Card>
   );
