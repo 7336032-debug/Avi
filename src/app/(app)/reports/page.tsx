@@ -28,6 +28,7 @@ import { PAYMENT_METHOD_LABELS } from "@/types/database";
 import { PAYMENT_METHOD_EMOJI } from "@/lib/categoryStyle";
 import { getTransactions } from "@/lib/transactions";
 import type { Transaction } from "@/lib/transactions";
+import { TransactionRow } from "./TransactionRow";
 import { NailsFacialsChart } from "@/components/charts/NailsFacialsChart";
 import { MonthCalendarGrid } from "@/components/reports/MonthCalendarGrid";
 import type { WeeklyGoal } from "@/types/database";
@@ -348,26 +349,9 @@ function ReportsBody({
         {filteredTransactions.length === 0 ? (
           <p className="text-sm text-text-muted py-4 text-center">אין תנועות</p>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-1">
             {filteredTransactions.map((t) => (
-              <div key={`${t.kind}-${t.id}`} className="flex items-center justify-between text-sm">
-                <div className="min-w-0">
-                  <p className="truncate">{t.label}</p>
-                  <p className="truncate text-sm text-text-muted">
-                    {formatDate(t.date)}
-                    {t.subLabel ? ` · ${t.subLabel}` : ""}
-                    {t.isPaid === false ? " · ממתין לתשלום" : ""}
-                  </p>
-                </div>
-                <span
-                  className={cn(
-                    "shrink-0 font-bold",
-                    t.amount < 0 ? "text-warning" : "text-success",
-                  )}
-                >
-                  {formatCurrency(t.amount)}
-                </span>
-              </div>
+              <TransactionRow key={`${t.kind}-${t.id}`} transaction={t} />
             ))}
           </div>
         )}

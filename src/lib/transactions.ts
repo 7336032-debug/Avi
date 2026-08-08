@@ -14,6 +14,10 @@ export interface Transaction {
   subLabel: string | null;
   amount: number;
   isPaid: boolean | null;
+  // Raw payment method code (treatments only, for now) — additive field so
+  // the reports edit UI can pre-select the right button without re-parsing
+  // subLabel's display text. null for kinds that don't carry one.
+  paymentMethod: PaymentMethod | null;
 }
 
 export async function getTransactions(
@@ -51,6 +55,7 @@ export async function getTransactions(
       subLabel: PAYMENT_METHOD_LABELS[l.payment_method as PaymentMethod] ?? null,
       amount: Number(l.amount),
       isPaid: l.is_paid as boolean,
+      paymentMethod: (l.payment_method as PaymentMethod) ?? null,
     })),
     ...(sales ?? []).map((s) => ({
       id: s.id as string,
@@ -60,6 +65,7 @@ export async function getTransactions(
       subLabel: "מכירת מוצר",
       amount: Number(s.amount),
       isPaid: s.is_paid as boolean,
+      paymentMethod: null,
     })),
     ...(expenses ?? []).map((e) => ({
       id: e.id as string,
@@ -69,6 +75,7 @@ export async function getTransactions(
       subLabel: name(e.category),
       amount: -Number(e.amount),
       isPaid: null,
+      paymentMethod: null,
     })),
   ];
 

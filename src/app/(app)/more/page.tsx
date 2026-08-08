@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ListChecks, Target, ShoppingBag, Receipt, ChevronLeft } from "lucide-react";
 import { Header } from "@/components/layout/Header";
 import { BackupSection } from "./BackupSection";
+import { SyncSection } from "./SyncSection";
 
 const links = [
   {
@@ -64,7 +65,8 @@ export default function MorePage() {
           </Link>
         ))}
 
-        <div className="pt-2">
+        <div className="pt-2 space-y-3">
+          <SyncSection />
           <BackupSection />
         </div>
       </div>

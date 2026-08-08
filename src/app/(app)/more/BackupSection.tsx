@@ -3,11 +3,11 @@
 // Manual export/import — the local-first replacement for "sign out"/account
 // management. All data lives in this device's localStorage; this section is
 // the escape hatch for moving it to another device or keeping an off-device
-// backup. Cross-device pairing-code sync (like tochnit-hachlama's) is a
-// stretch goal and intentionally stubbed as "coming soon" here.
+// backup. For automatic, no-file cross-device sync see SyncSection.tsx
+// (pairing-code sync, modeled on tochnit-hachlama's).
 
 import { useRef, useState } from "react";
-import { Download, Upload, RefreshCcw } from "lucide-react";
+import { Download, Upload } from "lucide-react";
 import { Card, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { exportStoreJson, importStoreJson } from "@/lib/local/browserStore";
@@ -77,10 +77,6 @@ export function BackupSection() {
         onChange={handleFileChange}
       />
       {message ? <p className="mt-2 text-sm text-text-muted">{message}</p> : null}
-      <div className="mt-3 flex items-center gap-2 rounded-xl bg-surface-soft px-3 py-2 text-sm text-text-muted">
-        <RefreshCcw size={16} className="shrink-0" />
-        <span>סנכרון בין מכשירים עם קוד זיווג — בקרוב ✨</span>
-      </div>
     </Card>
   );
 }
