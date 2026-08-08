@@ -75,7 +75,49 @@ declare global {
 }
 
 let tokenClient: GisTokenClient | null = null;
-let cachedToken: { access_token: string; expiresAt: number } | null = null;
+
+// Persisted (not just an in-memory variable) because iOS Safari routinely
+// reloads a backgrounded tab from scratch to reclaim memory - exactly what
+// happens when switching to check a second device and back. A plain JS
+// variable is wiped by that reload, so every return to the tab looked like
+// a brand-new, never-authenticated session and needed a fresh popup even
+// though the real Google token was still perfectly valid. localStorage
+// survives that reload (it's real browser storage, not JS heap), so a
+// still-valid token now actually gets reused instead of re-requested.
+const TOKEN_CACHE_KEY = "keren_amar_google_token_cache_v1";
+
+interface CachedToken {
+  access_token: string;
+  expiresAt: number;
+}
+
+function readCachedToken(): CachedToken | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(TOKEN_CACHE_KEY);
+    return raw ? (JSON.parse(raw) as CachedToken) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedToken(token: CachedToken): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(TOKEN_CACHE_KEY, JSON.stringify(token));
+  } catch {
+    // storage full/unavailable - just means every reload re-authenticates
+  }
+}
+
+function clearCachedTokenStorage(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(TOKEN_CACHE_KEY);
+  } catch {
+    // ignore
+  }
+}
 
 // Exported so callers can kick this off early (e.g. on page mount) rather
 // than only when the user taps "sign in" — iOS/Safari's popup blocker
@@ -147,8 +189,9 @@ export async function requestAccessToken({ silent = false }: { silent?: boolean 
         );
         return;
       }
-      cachedToken = { access_token: resp.access_token, expiresAt: Date.now() + (resp.expires_in - 60) * 1000 };
-      resolve(cachedToken.access_token);
+      const token: CachedToken = { access_token: resp.access_token, expiresAt: Date.now() + (resp.expires_in - 60) * 1000 };
+      writeCachedToken(token);
+      resolve(token.access_token);
     };
     client.error_callback = (err) => {
       const msg = err?.message ?? "";
@@ -167,12 +210,13 @@ export async function requestAccessToken({ silent = false }: { silent?: boolean 
 }
 
 export async function getValidAccessToken(): Promise<string> {
-  if (cachedToken && cachedToken.expiresAt > Date.now()) return cachedToken.access_token;
+  const cached = readCachedToken();
+  if (cached && cached.expiresAt > Date.now()) return cached.access_token;
   return requestAccessToken({ silent: true });
 }
 
 export function clearCachedToken(): void {
-  cachedToken = null;
+  clearCachedTokenStorage();
 }
 
 const DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files";
