@@ -88,5 +88,12 @@ jobs:
           DB_URL: ${{ inputs.db_url }}
           SYNC_PIN: ${{ inputs.sync_pin }}
 
+      - name: Fix pgcrypto search_path in sync functions (0007_fix_sync_pin_search_path.sql)
+        run: |
+          set -euo pipefail
+          psql "${DB_URL}" -v ON_ERROR_STOP=1 -f supabase/migrations/0007_fix_sync_pin_search_path.sql
+        env:
+          DB_URL: ${{ inputs.db_url }}
+
       - name: Done
         run: echo "Supabase setup complete for ${{ inputs.login_email }}"
