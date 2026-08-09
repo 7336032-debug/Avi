@@ -1,9 +1,9 @@
 // Persistent, browser-only data store: everything lives in this device's
-// localStorage, nothing is sent to any server. No login, no account —
-// there is exactly one implicit user per device (see LOCAL_USER_ID).
-// Cross-device sync layers on top of this via readStore()/writeStore() —
-// see googleSync.ts + googleSyncConfig.ts for the Google Drive sync
-// mechanism (modeled on the "recovery plan" app's), and export/import
+// localStorage as the source of truth, so the app works fully offline. No
+// login, no account — there is exactly one implicit user per device (see
+// LOCAL_USER_ID). Cross-device sync layers on top of this via
+// readStore()/writeStore() — see supabaseSync.ts + useSupabaseSync.ts for
+// the automatic, login-free Supabase sync mechanism, and export/import
 // below remains available as a manual, no-network fallback.
 
 import { LOCAL_USER_ID, type Row, type Store } from "./store";
@@ -63,11 +63,11 @@ function isBrowser() {
 // `Store` itself (rather than a field inside it) so `Store` stays exactly
 // "the data tables" — queryBuilder.ts derives its table-name type from
 // `keyof Store`, and a metadata field there would incorrectly look like a
-// table. Cross-device sync (see googleSync.ts/useGoogleSync.ts) uses this
-// to tell "remote has newer changes" apart from "local has newer changes
-// not yet pushed" - the earlier version of sync had no such signal and, on
-// any difference, always overwrote local with the remote snapshot, which
-// silently destroyed not-yet-pushed local edits.
+// table. Cross-device sync (see supabaseSync.ts/useSupabaseSync.ts) uses
+// this to tell "remote has newer changes" apart from "local has newer
+// changes not yet pushed" - without such a signal, any difference would
+// have to always overwrite local with the remote snapshot, which would
+// silently destroy not-yet-pushed local edits.
 const META_KEY = "keren_amar_store_meta_v1";
 const EPOCH = new Date(0).toISOString();
 
@@ -117,9 +117,8 @@ export function readStore(): Store {
 
 // Fired after a genuine local write (not after applyRemoteStore(), which is
 // data arriving FROM a pull - pushing that right back would be pointless).
-// useGoogleSync.ts listens for this to debounce-push shortly after an edit,
-// instead of waiting for the next periodic sync tick - see its comment for
-// why this specific event-driven trigger matters on Safari.
+// useSupabaseSync.ts listens for this to debounce-push shortly after an
+// edit, instead of waiting for the next periodic sync tick.
 export const STORE_CHANGED_EVENT = "ka:store-changed";
 
 export function writeStore(store: Store): void {
