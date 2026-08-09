@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { readStore, applyRemoteStore, getLocalUpdatedAt, STORE_CHANGED_EVENT } from "@/lib/local/browserStore";
 import type { Store } from "@/lib/local/store";
-import { readSyncRow, writeSyncRow, isSupabaseConfigured } from "@/lib/local/supabaseSync";
+import { readSyncRow, writeSyncRow, migrateLocalDataOnce, isSupabaseConfigured } from "@/lib/local/supabaseSync";
 
 const AUTO_SYNC_INTERVAL_MS = 15000;
 const AUTO_PUSH_DEBOUNCE_MS = 2000;
@@ -47,6 +47,36 @@ export function useSupabaseSync() {
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
+
+  // One-time union-merge of this device's pre-existing local data into the
+  // shared cloud row, before the regular snapshot-based sync loop below is
+  // allowed to run - see migrateLocalDataOnce()'s comment in supabaseSync.ts
+  // for why this has to happen first and can't just be folded into the
+  // regular "newest wins" loop.
+  const [migrated, setMigrated] = useState(false);
+  useEffect(() => {
+    if (!configured) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await migrateLocalDataOnce(readStore(), getLocalUpdatedAt());
+        if (cancelled) return;
+        if (result) {
+          applyRemoteStore(result.merged, result.updatedAt);
+          reloadSoon();
+        }
+      } catch {
+        // Offline or the migration table isn't reachable yet - safe to
+        // retry: migrateLocalDataOnce() only marks itself done after it
+        // actually succeeds, so the next page load tries again.
+      } finally {
+        if (!cancelled) setMigrated(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [configured]);
 
   const syncOnce = useCallback(async (opts: { reloadOnChange: boolean }) => {
     setStatus((s) => ({ ...s, syncing: true, error: null }));
@@ -86,7 +116,7 @@ export function useSupabaseSync() {
   // becomes visible again, and on a ~15s timer while visible. No sign-in and
   // no popups involved at any point - this just runs.
   useEffect(() => {
-    if (!configured) return undefined;
+    if (!configured || !migrated) return undefined;
     const tick = () => {
       if (document.visibilityState !== "visible") return;
       if (statusRef.current.syncing) return;
@@ -102,13 +132,13 @@ export function useSupabaseSync() {
       clearInterval(interval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [configured]);
+  }, [configured, migrated]);
 
   // Debounced auto-push shortly after a local edit (logging a treatment,
   // editing/deleting a transaction, etc.), rather than waiting for the next
   // periodic tick.
   useEffect(() => {
-    if (!configured) return undefined;
+    if (!configured || !migrated) return undefined;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const onChange = () => {
       if (timer) clearTimeout(timer);
@@ -122,7 +152,7 @@ export function useSupabaseSync() {
       window.removeEventListener(STORE_CHANGED_EVENT, onChange);
       if (timer) clearTimeout(timer);
     };
-  }, [configured, syncOnce]);
+  }, [configured, migrated, syncOnce]);
 
   return { status, syncNow };
 }
