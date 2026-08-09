@@ -1,24 +1,45 @@
 // Automatic cross-device sync via Supabase, storing the whole local `Store`
 // (see ./store.ts) as one JSON snapshot row, synced with timestamp-based
 // push/pull direction (see useSupabaseSync.ts). See
-// supabase/migrations/0005_sync_blob.sql for the table/policies this talks
-// to.
+// supabase/migrations/0005_sync_blob.sql for the table this talks to, and
+// 0006_sync_pin.sql for the PIN check enforced below.
 //
-// There is NO sign-in step at all: the anon/publishable key is safe to ship
-// in client code (Postgres Row Level Security is what actually restricts it
-// - see the migration), so every device can read/write the shared sync row
-// the moment the page loads, with no popup, no account, no user action
-// required.
+// There is no sign-in *screen*, but there is a PIN gate: the anon/publishable
+// key is safe to ship in client code, but on its own it used to be enough to
+// read/write the shared row directly (the row id it was scoped to is also
+// visible in this same bundle, so RLS-by-id alone doesn't hide anything from
+// a stranger with the URL). Direct table access is now revoked - reads and
+// writes only work through the sync_blob_get/sync_blob_upsert Postgres
+// functions, which check a PIN (hashed server-side, never shipped here)
+// before touching anything. Each device enters that PIN once and it's kept
+// only in that device's own localStorage (see ./syncPin.ts).
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { LOCAL_USER_ID, type Row, type Store } from "./store";
+import { getSyncPin } from "./syncPin";
 
-// Not secrets: the anon/publishable key is meant to be public in client-side
-// code (like the Google OAuth Client ID was) - real access control is the
-// RLS policy in the migration, which only allows touching the one row whose
-// id equals LOCAL_USER_ID.
 const SUPABASE_URL = "https://bwfsbmkyiiqlrhbuyhpy.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_Ljf2NgSqjMPcScyibIvv0Q_coW_TyRC";
+
+export class SyncPinRequiredError extends Error {
+  constructor() {
+    super("צריך להזין קוד סנכרון במכשיר הזה");
+    this.name = "SyncPinRequiredError";
+  }
+}
+
+export class SyncPinInvalidError extends Error {
+  constructor() {
+    super("קוד הסנכרון שגוי");
+    this.name = "SyncPinInvalidError";
+  }
+}
+
+function requirePin(): string {
+  const pin = getSyncPin();
+  if (!pin) throw new SyncPinRequiredError();
+  return pin;
+}
 
 // The single shared row's id - reusing the same constant this app already
 // uses as its local-only "implicit user" id, now doubling as the
@@ -48,30 +69,41 @@ function friendlyFetchError(): Error {
   return new Error("אין חיבור לאינטרנט - הנתונים יסתנכרנו כשהחיבור יחזור");
 }
 
+function rethrowPinAware(err: unknown): never {
+  if (err instanceof SyncPinRequiredError || err instanceof SyncPinInvalidError) throw err;
+  if (err instanceof Error && err.message) throw err;
+  throw friendlyFetchError();
+}
+
 export async function readSyncRow(): Promise<SyncBlobRow | null> {
+  const pin = requirePin();
   try {
-    const { data, error } = await getClient()
-      .from("sync_blob")
-      .select("id, store, updated_at")
-      .eq("id", SYNC_ROW_ID)
-      .maybeSingle();
-    if (error) throw new Error(error.message);
-    return (data as SyncBlobRow | null) ?? null;
+    const { data, error } = await getClient().rpc("sync_blob_get", { p_pin: pin });
+    if (error) {
+      if (/invalid pin/i.test(error.message)) throw new SyncPinInvalidError();
+      throw new Error(error.message);
+    }
+    const row = Array.isArray(data) ? data[0] : data;
+    return (row as SyncBlobRow | undefined) ?? null;
   } catch (err) {
-    if (err instanceof Error && err.message) throw err;
-    throw friendlyFetchError();
+    rethrowPinAware(err);
   }
 }
 
 export async function writeSyncRow(store: unknown, updatedAt: string): Promise<void> {
+  const pin = requirePin();
   try {
-    const { error } = await getClient()
-      .from("sync_blob")
-      .upsert({ id: SYNC_ROW_ID, store, updated_at: updatedAt }, { onConflict: "id" });
-    if (error) throw new Error(error.message);
+    const { error } = await getClient().rpc("sync_blob_upsert", {
+      p_pin: pin,
+      p_store: store,
+      p_updated_at: updatedAt,
+    });
+    if (error) {
+      if (/invalid pin/i.test(error.message)) throw new SyncPinInvalidError();
+      throw new Error(error.message);
+    }
   } catch (err) {
-    if (err instanceof Error && err.message) throw err;
-    throw friendlyFetchError();
+    rethrowPinAware(err);
   }
 }
 

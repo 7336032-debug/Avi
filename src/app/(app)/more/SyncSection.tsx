@@ -6,9 +6,11 @@
 // background on every device the moment this screen (or really, any screen
 // that mounts useSupabaseSync - see layout wiring) loads.
 
-import { Cloud } from "lucide-react";
+import { useState } from "react";
+import { Cloud, Lock } from "lucide-react";
 import { Card, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Field";
 import { ErrorBanner } from "@/components/ui/ErrorBanner";
 import { useSupabaseSync, type SupabaseSyncStatus } from "@/lib/local/useSupabaseSync";
 
@@ -66,8 +68,39 @@ function ConfiguredPanel({ status, onSyncNow }: { status: SupabaseSyncStatus; on
   );
 }
 
+function PinPanel({ status, onSubmit }: { status: SupabaseSyncStatus; onSubmit: (pin: string) => void }) {
+  const [pin, setPin] = useState("");
+  return (
+    <form
+      className="space-y-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const trimmed = pin.trim();
+        if (trimmed) onSubmit(trimmed);
+      }}
+    >
+      <p className="flex items-center gap-1.5 text-sm text-text-muted">
+        <Lock size={14} aria-hidden /> כדי לסנכרן בין המכשירים יש להזין את קוד
+        הסנכרון (מוגדר פעם אחת בכל מכשיר, ונשמר רק בו).
+      </p>
+      {status.error ? <ErrorBanner message={status.error} /> : null}
+      <Input
+        type="password"
+        inputMode="numeric"
+        autoComplete="off"
+        value={pin}
+        onChange={(e) => setPin(e.target.value)}
+        placeholder="קוד הסנכרון"
+      />
+      <Button type="submit" variant="secondary" size="sm" className="w-full" disabled={!pin.trim() || status.syncing}>
+        {status.syncing ? "בודקת..." : "אישור"}
+      </Button>
+    </form>
+  );
+}
+
 export function SyncSection() {
-  const { status, syncNow } = useSupabaseSync();
+  const { status, syncNow, submitPin } = useSupabaseSync();
 
   return (
     <Card>
@@ -75,6 +108,8 @@ export function SyncSection() {
 
       {!status.configured ? (
         <NotConfiguredPanel />
+      ) : status.needsPin ? (
+        <PinPanel status={status} onSubmit={submitPin} />
       ) : (
         <ConfiguredPanel status={status} onSyncNow={() => syncNow()} />
       )}

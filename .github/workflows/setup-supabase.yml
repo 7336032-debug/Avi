@@ -17,6 +17,10 @@ on:
         description: "Connection string (Session pooler, URI) מתוך Supabase Database Settings"
         required: true
         type: string
+      sync_pin:
+        description: "קוד סנכרון (מספרים/אותיות בלבד, בלי מרכאות) - את תזיני אותו פעם אחת בכל מכשיר. השאירי ריק אם כבר הגדרת קוד קודם ורק רוצה להריץ מיגרציות אחרות."
+        required: false
+        type: string
 
 jobs:
   migrate:
@@ -25,7 +29,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Mask sensitive input
-        run: echo "::add-mask::${{ inputs.db_url }}"
+        run: |
+          echo "::add-mask::${{ inputs.db_url }}"
+          echo "::add-mask::${{ inputs.sync_pin }}"
 
       - name: Install PostgreSQL client
         run: |
@@ -63,6 +69,24 @@ jobs:
           psql "${DB_URL}" -v ON_ERROR_STOP=1 -f supabase/migrations/0004_product_sales_payment_method.sql
         env:
           DB_URL: ${{ inputs.db_url }}
+
+      - name: Add cross-device sync table (0005_sync_blob.sql)
+        run: |
+          set -euo pipefail
+          psql "${DB_URL}" -v ON_ERROR_STOP=1 -f supabase/migrations/0005_sync_blob.sql
+        env:
+          DB_URL: ${{ inputs.db_url }}
+
+      - name: Require a PIN for sync access (0006_sync_pin.sql)
+        if: ${{ inputs.sync_pin != '' }}
+        run: |
+          set -euo pipefail
+          sed "s|REPLACE_WITH_SYNC_PIN|${SYNC_PIN}|" \
+            supabase/migrations/0006_sync_pin.sql > /tmp/sync_pin.sql
+          psql "${DB_URL}" -v ON_ERROR_STOP=1 -f /tmp/sync_pin.sql
+        env:
+          DB_URL: ${{ inputs.db_url }}
+          SYNC_PIN: ${{ inputs.sync_pin }}
 
       - name: Done
         run: echo "Supabase setup complete for ${{ inputs.login_email }}"
