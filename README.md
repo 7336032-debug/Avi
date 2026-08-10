@@ -75,3 +75,4 @@ Supabase-JS (`.from(table).select()/insert()/update()/delete()`) כדי
 - עברית מלאה, RTL, Mobile-First
 
 <!-- deploy trigger: 2026-08-08 -->
+
